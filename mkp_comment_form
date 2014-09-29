@@ -1,4 +1,4 @@
-function commentForm($id, $atts=NULL)
+function mkp_commentForm($id, $atts=NULL)
 	{
 		global $prefs;
 		extract($prefs);
