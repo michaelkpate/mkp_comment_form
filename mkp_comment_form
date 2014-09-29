@@ -1,0 +1,175 @@
+function commentForm($id, $atts=NULL)
+	{
+		global $prefs;
+		extract($prefs);
+
+		$h5 = ($doctype == 'html5');
+
+		extract(lAtts(array(
+			'isize'         => '25',
+			'msgrows'       => '5',
+			'msgcols'       => '25',
+			'msgstyle'      => '',
+			'form'          => 'comment_form',
+			'previewlabel'  => gTxt('preview'),
+			'submitlabel'   => gTxt('submit'),
+			'rememberlabel' => gTxt('remember'),
+			'forgetlabel'   => gTxt('forget')
+		),$atts, 0));
+
+		$namewarn = false;
+		$emailwarn = false;
+		$commentwarn = false;
+		$name  = pcs('name');
+		$email = clean_url(pcs('email'));
+		$web   = clean_url(pcs('web'));
+		$n_message = 'message';
+
+		extract( doDeEnt ( psa( array(
+			'checkbox_type',
+			'remember',
+			'forget',
+			'parentid',
+			'preview',
+			'message',
+			'submit',
+			'backpage'
+		) ) ) );
+		if ($message == '')
+		{	//Second or later preview will have randomized message-field name
+			$in = getComment();
+			$message = doDeEnt($in['message']);
+		}
+		if ( $preview ) {
+			$name  = ps('name');
+			$email = clean_url(ps('email'));
+			$web   = clean_url(ps('web'));
+			$nonce = getNextNonce();
+			$secret = getNextSecret();
+			safe_insert("txp_discuss_nonce", "issue_time=now(), nonce='".doSlash($nonce)."', secret='".doSlash($secret)."'");
+			$n_message = md5('message'.$secret);
+
+			$namewarn = ($comments_require_name && !trim($name));
+			$emailwarn = ($comments_require_email && !trim($email));
+			$commentwarn = (!trim($message));
+
+			$evaluator =& get_comment_evaluator();
+			if ($namewarn) $evaluator -> add_estimate(RELOAD,1,gTxt('comment_name_required'));
+			if ($emailwarn) $evaluator -> add_estimate(RELOAD,1,gTxt('comment_email_required'));
+			if ($commentwarn) $evaluator -> add_estimate(RELOAD,1,gTxt('comment_required'));
+
+		}
+		else
+		{
+			$rememberCookie = cs('txp_remember');
+			if($rememberCookie === '')
+			{
+				$checkbox_type = 'remember';
+				$remember = 1;
+			}
+			else if($rememberCookie == 1)
+				$checkbox_type = 'forget';
+			else
+				$checkbox_type = 'remember';
+		}
+
+		// If the form fields are filled (anything other than blank), pages
+		// really should not be saved by a public cache. rfc2616/14.9.1
+		if ($name || $email || $web) {
+			header('Cache-Control: private');
+		}
+
+		$parentid = (!$parentid) ? $id : $parentid;
+
+		$url = $GLOBALS['pretext']['request_uri'];
+
+		// Experimental clean urls with only 404-error-document on apache
+		// possibly requires messy urls for POST requests.
+		if (defined('PARTLY_MESSY') and (PARTLY_MESSY))
+		{
+			$url = hu.'?id='.intval($parentid);
+		}
+
+		$out = '<form id="txpCommentInputForm" method="post" action="'.txpspecialchars($url).'#cpreview">'.
+
+			# prevent XHTML Strict validation gotchas
+			n.'<div class="comments-wrapper">'.n.n;
+
+		$Form = fetch('Form', 'txp_form', 'name', $form);
+
+		$required = ($h5) ? ' required' : '';
+
+		$msgstyle = ($msgstyle ? ' style="'.$msgstyle.'"' : '');
+		$msgrows = ($msgrows and is_numeric($msgrows)) ? ' rows="'.intval($msgrows).'"' : '';
+		$msgcols = ($msgcols and is_numeric($msgcols)) ? ' cols="'.intval($msgcols).'"' : '';
+
+		$textarea = '<textarea id="message" name="'.$n_message.'"'.$msgcols.$msgrows.$msgstyle.$required.
+			' class="txpCommentInputMessage'.(($commentwarn) ? ' comments_error"' : '"').
+			'>'.txpspecialchars(substr(trim($message), 0, 65535)).'</textarea>';
+
+		// by default, the submit button is visible but disabled
+		$comment_submit_button = fInput('submit', 'submit', $submitlabel, 'button disabled', '', '', '', '', 'txpCommentSubmit', true);
+
+		// if all fields checkout, the submit button is active/clickable
+		if ($preview) {
+			$comment_submit_button = fInput('submit', 'submit', $submitlabel, 'button', '', '', '', '', 'txpCommentSubmit', false);
+		}
+
+		if ($checkbox_type == 'forget')
+		{
+			// inhibit default remember
+			if ($forget == 1)
+			{
+				destroyCookies();
+			}
+
+			$checkbox = checkbox('forget', 1, $forget, '', 'forget').' '.tag(txpspecialchars($forgetlabel), 'label', ' for="forget"');
+		}
+
+		else
+		{
+			// inhibit default remember
+			if ($remember != 1)
+			{
+				destroyCookies();
+			}
+
+			$checkbox = checkbox('remember', 1, $remember, '', 'remember').' '.tag(txpspecialchars($rememberlabel), 'label', ' for="remember"');
+		}
+
+		$checkbox .= ' '.hInput('checkbox_type', $checkbox_type);
+
+		$vals = array(
+			'comment_name_input'    => fInput('text', 'name', $name, 'comment_name_input'.($namewarn ? ' comments_error' : ''), '', '', $isize, '', 'name', false, $h5 && $comments_require_name),
+			'comment_email_input'   => fInput($h5 ? 'email' : 'text', 'email', $email, 'comment_email_input'.($emailwarn ? ' comments_error' : ''), '', '', $isize, '', 'email', false, $h5 && $comments_require_email),
+			'comment_web_input'     => fInput($h5 ? 'text' /* TODO: type = 'url' once browsers are less strict */ : 'text', 'web', $web, 'comment_web_input', '', '', $isize, '', 'web', false, false),
+			'comment_message_input' => $textarea.'<!-- plugin-place-holder -->',
+			'comment_remember'      => $checkbox,
+			'comment_preview'       => fInput('submit', 'preview', $previewlabel, 'button', '', '', '', '', 'txpCommentPreview', false),
+			'comment_submit'        => $comment_submit_button
+		);
+
+		foreach ($vals as $a => $b)
+		{
+			$Form = str_replace('<txp:'.$a.' />', $b, $Form);
+		}
+
+		$form = parse($Form);
+
+		$out .= $form.
+			n.hInput('parentid', $parentid);
+
+		$split = rand(1, 31);
+
+		$out .= ($preview) ? n.hInput(substr($nonce, 0, $split), substr($nonce, $split)) : '';
+
+		$out .= (!$preview) ?
+			n.hInput('backpage', $url) :
+			n.hInput('backpage', $backpage);
+
+		$out = str_replace( '<!-- plugin-place-holder -->', callback_event('comment.form'), $out);
+
+		$out .= n.n.'</div>'.n.'</form>';
+
+		return $out;
+	}
